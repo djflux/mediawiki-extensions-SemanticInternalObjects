@@ -31,28 +31,28 @@ $wgExtensionCredits['semantic'][] = array(
 // identical, syntax.
 // Eventually, it may make sense to just turn #set_internal
 // into a quasi-alias for #subobject in all cases.
-if ( $smwgDefaultStore == 'SMWSQLStore3' ) {
+//if ( $smwgDefaultStore == 'SMWSQLStore3' ) {
 	$wgHooks['ParserFirstCallInit'][] = 'siofRegisterAliasParserFunctions';
-} else {
-	$wgHooks['ParserFirstCallInit'][] = 'siofRegisterParserFunctions';
-	$wgHooks['ParserClearState'][] = 'SIOHandler::clearState';
-	$wgHooks['SMWSQLStore2::updateDataAfter'][] = 'SIOHandler::updateData';
-	$wgHooks['SMWSQLStore2::deleteSubjectAfter'][] = 'SIOHandler::deleteData';
-	$wgHooks['smwUpdatePropertySubjects'][] = 'SIOHandler::handleUpdatingOfInternalObjects';
-	$wgHooks['TitleMoveComplete'][] = 'SIOHandler::handlePageMove';
-	$wgHooks['smwRefreshDataJobs'][] = 'SIOHandler::handleRefreshingOfInternalObjects';
-	$wgHooks['smwAddToRDFExport'][] = 'SIOSQLStore::createRDF';
-	$wgAutoloadClasses['SIOSQLStore'] = __DIR__ . '/SemanticInternalObjects_body.php';
-	if ( class_exists( 'SMWDIWikiPage' ) ) {
-		// SMW >= 1.6
-		$wgAutoloadClasses['SIOInternalObjectValue'] = __DIR__ . '/SIO_RDFClasses2.php';
-		$wgAutoloadClasses['SIOTitle'] = __DIR__ . '/SIO_RDFClasses2.php';
-	} else {
-		$wgAutoloadClasses['SIOInternalObjectValue'] = __DIR__ . '/SIO_RDFClasses.php';
-		$wgAutoloadClasses['SIOTitle'] = __DIR__ . '/SIO_RDFClasses.php';
-		$wgAutoloadClasses['SIOExporter'] = __DIR__ . '/SIO_RDFClasses.php';
-	}
-}
+//} else {
+//	$wgHooks['ParserFirstCallInit'][] = 'siofRegisterParserFunctions';
+//	$wgHooks['ParserClearState'][] = 'SIOHandler::clearState';
+//	$wgHooks['SMWSQLStore2::updateDataAfter'][] = 'SIOHandler::updateData';
+//	$wgHooks['SMWSQLStore2::deleteSubjectAfter'][] = 'SIOHandler::deleteData';
+//	$wgHooks['smwUpdatePropertySubjects'][] = 'SIOHandler::handleUpdatingOfInternalObjects';
+//	$wgHooks['TitleMoveComplete'][] = 'SIOHandler::handlePageMove';
+//	$wgHooks['smwRefreshDataJobs'][] = 'SIOHandler::handleRefreshingOfInternalObjects';
+//	$wgHooks['smwAddToRDFExport'][] = 'SIOSQLStore::createRDF';
+//	$wgAutoloadClasses['SIOSQLStore'] = __DIR__ . '/SemanticInternalObjects_body.php';
+//	if ( class_exists( 'SMWDIWikiPage' ) ) {
+//		// SMW >= 1.6
+//		$wgAutoloadClasses['SIOInternalObjectValue'] = __DIR__ . '/SIO_RDFClasses2.php';
+//		$wgAutoloadClasses['SIOTitle'] = __DIR__ . '/SIO_RDFClasses2.php';
+//	} else {
+//		$wgAutoloadClasses['SIOInternalObjectValue'] = __DIR__ . '/SIO_RDFClasses.php';
+//		$wgAutoloadClasses['SIOTitle'] = __DIR__ . '/SIO_RDFClasses.php';
+//		$wgAutoloadClasses['SIOExporter'] = __DIR__ . '/SIO_RDFClasses.php';
+//	}
+//}
 
 $wgHooks['PageSchemasRegisterHandlers'][] = 'SIOPageSchemas::registerClass';
 

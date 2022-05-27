@@ -58,188 +58,188 @@ class SIOInternalObject {
  * and makeSMWPropertyID(), which are needed for the DB access, are both
  * protected, and thus can't be accessed externally.
  */
-class SIOSQLStore extends SMWSQLStore2 {
-	
-	static function deleteDataForPage( $subject ) {
-		$pageName = $subject->getDBKey();
-		$namespace = $subject->getNamespace();
-
-		// Get the set of IDs for internal objects to be deleted.
-		$iw = '';
-		$db = wfGetDB( DB_REPLICA );
-		$idsForDeletion = $db->selectFieldValues(
-			'smw_ids',
-			'smw_id',
-			'smw_title LIKE ' . $db->addQuotes( $pageName . '#%' ) . ' AND ' . 'smw_namespace=' . $db->addQuotes( $namespace ) . ' AND smw_iw=' . $db->addQuotes( $iw ),
-			'SIO::getSMWPageObjectIDs'
-		);
-		
-		if ( count( $idsForDeletion ) == 0 ) {
-			return;
-		}
-
-		// Now, do the deletion.
-		$db = wfGetDB( DB_MASTER );
-		$idsString = '(' . implode ( ', ', $idsForDeletion ) . ')';
-		$db->delete( 'smw_rels2', array( "(s_id IN $idsString) OR (o_id IN $idsString)" ), 'SIO::deleteRels2Data' );
-		$db->delete( 'smw_atts2', array( "s_id IN $idsString" ), 'SIO::deleteAtts2Data' );
-		$db->delete( 'smw_text2', array( "s_id IN $idsString" ), 'SIO::deleteText2Data' );
-		// Handle the sm_coords table only if the Semantic Maps
-		// extension is installed and uses sm_coords.
-		if ( defined( 'SM_VERSION' ) && version_compare( SM_VERSION, '0.6' ) >= 0 ) {
-			$db->delete( 'sm_coords', array( "s_id IN $idsString" ), 'SIO::deleteCoordsData' );
-		}
-	}
-
-	/**
-	 * Returns the set of SQL values needed to insert the data for this
-	 * internal object into the database.
-	 */
-	function getStorageSQL( $internalObject ) {
-		if ( method_exists( 'SMWDIWikiPage', 'getSubobjectName' ) ) {
-			// SMW 1.6+
-			$ioID = $this->makeSMWPageID( $internalObject->getName(), $internalObject->getNamespace(), '', '' );
-		} else {
-			$ioID = $this->makeSMWPageID( $internalObject->getName(), $internalObject->getNamespace(), '' );
-		}
-		$upRels2 = array();
-		$upAtts2 = array();
-		$upText2 = array();
-		$upCoords = array();
-		// set all the properties pointing from this internal object
-		foreach ( $internalObject->getPropertyValuePairs() as $propertyValuePair ) {
-			list( $property, $value ) = $propertyValuePair;
-
-			$tableid = SMWSQLStore2::findPropertyTableID( $property );
-			$isRelation = ( $tableid == 'smw_rels2' );
-			$isAttribute = ( $tableid == 'smw_atts2' );
-			$isText = ( $tableid == 'smw_text2' );
-			$isCoords = ( $tableid == 'smw_coords' );
-			
-			if ( $isRelation ) {
-				if ( method_exists( 'SMWDIWikiPage', 'getSubobjectName' ) ) {
-					// SMW 1.6+
-					$mainPageID = $this->makeSMWPageID( $value->getDBkey(), $value->getNamespace(), $value->getInterwiki(), '' );
-				} else {
-					$mainPageID = $this->makeSMWPageID( $value->getDBkey(), $value->getNamespace(), $value->getInterwiki() );
-				}
-				$upRels2[] = array(
-					's_id' => $ioID,
-					'p_id' => $this->makeSMWPropertyID( $property ),
-					'o_id' => $mainPageID
-				);
-			} elseif ( $isAttribute ) {
-				if ( class_exists( 'SMWCompatibilityHelpers' ) ) {
-					// SMW 1.6+
-					$dataItem = $value->getDataItem();
-					$keys = SMWCompatibilityHelpers::getDBkeysFromDataItem( $dataItem );
-					$valueNum = $dataItem->getSortKey();
-				} else {
-					$keys = $value->getDBkeys();
-					if ( method_exists( $value, 'getValueKey' ) ) {
-						$valueNum = $value->getValueKey();
-					} else {
-						$valueNum = $value->getNumericValue();
-					}
-				}
-				
-				$upAttr = array(
-					's_id' => $ioID,
-					'p_id' => $this->makeSMWPropertyID( $property ),
-					'value_xsd' => $keys[0],
-					'value_num' => $valueNum
-				);
-				
-				// 'value_unit' DB field was removed in SMW 1.6
-				if ( version_compare( SMW_VERSION, '1.6 alpha', '<' ) ) {
-					$upAttr['value_unit'] = $value->getUnit();
-				}
-				
-				$upAtts2[] = $upAttr;
-			} elseif ( $isText ) {
-				if ( method_exists( $value, 'getShortWikiText' ) ) {
-					// SMW 1.6+
-					$key = $value->getShortWikiText();
-				} else {
-					$keys = $value->getDBkeys();
-					$key = $keys[0];
-				}
-				$upText2[] = array(
-					's_id' => $ioID,
-					'p_id' => $this->makeSMWPropertyID( $property ),
-					'value_blob' => $key
-				);
-			} elseif ( $isCoords ) {
-				if ( class_exists( 'SMWDIGeoCoord' ) ) {
-					// SMW 1.6+
-					$dataItem = $value->getDataItem();
-					$coordinateSet = $dataItem->getCoordinateSet();
-					$keys = array(
-						$coordinateSet['lat'],
-						$coordinateSet['lon']
-					);
-				} elseif ( class_exists( 'SMWCompatibilityHelpers' ) ) {
-					// Also SMW 1.6+ - this will probably
-					// never get called.
-					$dataItem = $value->getDataItem();
-					$keys = SMWCompatibilityHelpers::getDBkeysFromDataItem( $dataItem );
-				} else {
-					$keys = $value->getDBkeys();
-				}
-				$upCoords[] = array(
-					's_id' => $ioID,
-					'p_id' => $this->makeSMWPropertyID( $property ),
-					'lat' => $keys[0],
-					'lon' => $keys[1],
-				);
-			}
-		}
-		
-		return array( $upRels2, $upAtts2, $upText2, $upCoords );
-	}
-
-	static function createRDF( $title, $rdfDataArray, $fullexport = true, $backlinks = false ) {
-		// if it's not a full export, don't add internal object data
-		if ( !$fullexport ) {
-			return true;
-		}
-
-		$pageName = $title->getDBkey();
-		$namespace = $title->getNamespace();
-
-		// Go through all SIOs for the current page, create RDF for
-		// each one, and add it to the general array.
-		$iw = '';
-		$db = wfGetDB( DB_REPLICA );
-		$res = $db->select(
-			'smw_ids',
-			array( 'smw_id', 'smw_namespace', 'smw_title' ),
-			'smw_title LIKE ' . $db->addQuotes( $pageName . '#%' ) . ' AND ' . 'smw_namespace=' . $db->addQuotes( $namespace ) . ' AND smw_iw=' . $db->addQuotes( $iw ),
-			'SIO::getSMWPageObjectIDs'
-		);
-		
-		foreach ( $res as $row ) {
-			$value = new SIOInternalObjectValue( $row->smw_title, intval( $row->smw_namespace ) );
-			if ( class_exists( 'SMWSqlStubSemanticData' ) ) {
-				// SMW >= 1.6
-				$semdata = new SMWSqlStubSemanticData( $value, false );
-			} else {
-				$semdata = new SMWSemanticData( $value, false );
-			}
-			$propertyTables = SMWSQLStore2::getPropertyTables();
-			foreach ( $propertyTables as $tableName => $propertyTable ) {
-				$data = smwfGetStore()->fetchSemanticData( $row->smw_id, null, $propertyTable );
-				foreach ( $data as $d ) {
-					$semdata->addPropertyStubValue( reset( $d ), end( $d ) );
-				}
-			}
-			
-			$rdfDataArray[] = SMWExporter::makeExportData( $semdata, null );
-		}
-		
-		return true;
-	}
-}
+// class SIOSQLStore extends SMWSQLStore2 {
+// 	
+// 	static function deleteDataForPage( $subject ) {
+// 		$pageName = $subject->getDBKey();
+// 		$namespace = $subject->getNamespace();
+// 
+// 		// Get the set of IDs for internal objects to be deleted.
+// 		$iw = '';
+// 		$db = wfGetDB( DB_REPLICA );
+// 		$idsForDeletion = $db->selectFieldValues(
+// 			'smw_ids',
+// 			'smw_id',
+// 			'smw_title LIKE ' . $db->addQuotes( $pageName . '#%' ) . ' AND ' . 'smw_namespace=' . $db->addQuotes( $namespace ) . ' AND smw_iw=' . $db->addQuotes( $iw ),
+// 			'SIO::getSMWPageObjectIDs'
+// 		);
+// 		
+// 		if ( count( $idsForDeletion ) == 0 ) {
+// 			return;
+// 		}
+// 
+// 		// Now, do the deletion.
+// 		$db = wfGetDB( DB_MASTER );
+// 		$idsString = '(' . implode ( ', ', $idsForDeletion ) . ')';
+// 		$db->delete( 'smw_rels2', array( "(s_id IN $idsString) OR (o_id IN $idsString)" ), 'SIO::deleteRels2Data' );
+// 		$db->delete( 'smw_atts2', array( "s_id IN $idsString" ), 'SIO::deleteAtts2Data' );
+// 		$db->delete( 'smw_text2', array( "s_id IN $idsString" ), 'SIO::deleteText2Data' );
+// 		// Handle the sm_coords table only if the Semantic Maps
+// 		// extension is installed and uses sm_coords.
+// 		if ( defined( 'SM_VERSION' ) && version_compare( SM_VERSION, '0.6' ) >= 0 ) {
+// 			$db->delete( 'sm_coords', array( "s_id IN $idsString" ), 'SIO::deleteCoordsData' );
+// 		}
+// 	}
+// 
+// 	/**
+// 	 * Returns the set of SQL values needed to insert the data for this
+// 	 * internal object into the database.
+// 	 */
+// 	function getStorageSQL( $internalObject ) {
+// 		if ( method_exists( 'SMWDIWikiPage', 'getSubobjectName' ) ) {
+// 			// SMW 1.6+
+// 			$ioID = $this->makeSMWPageID( $internalObject->getName(), $internalObject->getNamespace(), '', '' );
+// 		} else {
+// 			$ioID = $this->makeSMWPageID( $internalObject->getName(), $internalObject->getNamespace(), '' );
+// 		}
+// 		$upRels2 = array();
+// 		$upAtts2 = array();
+// 		$upText2 = array();
+// 		$upCoords = array();
+// 		// set all the properties pointing from this internal object
+// 		foreach ( $internalObject->getPropertyValuePairs() as $propertyValuePair ) {
+// 			list( $property, $value ) = $propertyValuePair;
+// 
+// 			$tableid = SMWSQLStore2::findPropertyTableID( $property );
+// 			$isRelation = ( $tableid == 'smw_rels2' );
+// 			$isAttribute = ( $tableid == 'smw_atts2' );
+// 			$isText = ( $tableid == 'smw_text2' );
+// 			$isCoords = ( $tableid == 'smw_coords' );
+// 			
+// 			if ( $isRelation ) {
+// 				if ( method_exists( 'SMWDIWikiPage', 'getSubobjectName' ) ) {
+// 					// SMW 1.6+
+// 					$mainPageID = $this->makeSMWPageID( $value->getDBkey(), $value->getNamespace(), $value->getInterwiki(), '' );
+// 				} else {
+// 					$mainPageID = $this->makeSMWPageID( $value->getDBkey(), $value->getNamespace(), $value->getInterwiki() );
+// 				}
+// 				$upRels2[] = array(
+// 					's_id' => $ioID,
+// 					'p_id' => $this->makeSMWPropertyID( $property ),
+// 					'o_id' => $mainPageID
+// 				);
+// 			} elseif ( $isAttribute ) {
+// 				if ( class_exists( 'SMWCompatibilityHelpers' ) ) {
+// 					// SMW 1.6+
+// 					$dataItem = $value->getDataItem();
+// 					$keys = SMWCompatibilityHelpers::getDBkeysFromDataItem( $dataItem );
+// 					$valueNum = $dataItem->getSortKey();
+// 				} else {
+// 					$keys = $value->getDBkeys();
+// 					if ( method_exists( $value, 'getValueKey' ) ) {
+// 						$valueNum = $value->getValueKey();
+// 					} else {
+// 						$valueNum = $value->getNumericValue();
+// 					}
+// 				}
+// 				
+// 				$upAttr = array(
+// 					's_id' => $ioID,
+// 					'p_id' => $this->makeSMWPropertyID( $property ),
+// 					'value_xsd' => $keys[0],
+// 					'value_num' => $valueNum
+// 				);
+// 				
+// 				// 'value_unit' DB field was removed in SMW 1.6
+// 				if ( version_compare( SMW_VERSION, '1.6 alpha', '<' ) ) {
+// 					$upAttr['value_unit'] = $value->getUnit();
+// 				}
+// 				
+// 				$upAtts2[] = $upAttr;
+// 			} elseif ( $isText ) {
+// 				if ( method_exists( $value, 'getShortWikiText' ) ) {
+// 					// SMW 1.6+
+// 					$key = $value->getShortWikiText();
+// 				} else {
+// 					$keys = $value->getDBkeys();
+// 					$key = $keys[0];
+// 				}
+// 				$upText2[] = array(
+// 					's_id' => $ioID,
+// 					'p_id' => $this->makeSMWPropertyID( $property ),
+// 					'value_blob' => $key
+// 				);
+// 			} elseif ( $isCoords ) {
+// 				if ( class_exists( 'SMWDIGeoCoord' ) ) {
+// 					// SMW 1.6+
+// 					$dataItem = $value->getDataItem();
+// 					$coordinateSet = $dataItem->getCoordinateSet();
+// 					$keys = array(
+// 						$coordinateSet['lat'],
+// 						$coordinateSet['lon']
+// 					);
+// 				} elseif ( class_exists( 'SMWCompatibilityHelpers' ) ) {
+// 					// Also SMW 1.6+ - this will probably
+// 					// never get called.
+// 					$dataItem = $value->getDataItem();
+// 					$keys = SMWCompatibilityHelpers::getDBkeysFromDataItem( $dataItem );
+// 				} else {
+// 					$keys = $value->getDBkeys();
+// 				}
+// 				$upCoords[] = array(
+// 					's_id' => $ioID,
+// 					'p_id' => $this->makeSMWPropertyID( $property ),
+// 					'lat' => $keys[0],
+// 					'lon' => $keys[1],
+// 				);
+// 			}
+// 		}
+// 		
+// 		return array( $upRels2, $upAtts2, $upText2, $upCoords );
+// 	}
+// 
+// 	static function createRDF( $title, $rdfDataArray, $fullexport = true, $backlinks = false ) {
+// 		// if it's not a full export, don't add internal object data
+// 		if ( !$fullexport ) {
+// 			return true;
+// 		}
+// 
+// 		$pageName = $title->getDBkey();
+// 		$namespace = $title->getNamespace();
+// 
+// 		// Go through all SIOs for the current page, create RDF for
+// 		// each one, and add it to the general array.
+// 		$iw = '';
+// 		$db = wfGetDB( DB_REPLICA );
+// 		$res = $db->select(
+// 			'smw_ids',
+// 			array( 'smw_id', 'smw_namespace', 'smw_title' ),
+// 			'smw_title LIKE ' . $db->addQuotes( $pageName . '#%' ) . ' AND ' . 'smw_namespace=' . $db->addQuotes( $namespace ) . ' AND smw_iw=' . $db->addQuotes( $iw ),
+// 			'SIO::getSMWPageObjectIDs'
+// 		);
+// 		
+// 		foreach ( $res as $row ) {
+// 			$value = new SIOInternalObjectValue( $row->smw_title, intval( $row->smw_namespace ) );
+// 			if ( class_exists( 'SMWSqlStubSemanticData' ) ) {
+// 				// SMW >= 1.6
+// 				$semdata = new SMWSqlStubSemanticData( $value, false );
+// 			} else {
+// 				$semdata = new SMWSemanticData( $value, false );
+// 			}
+// 			$propertyTables = SMWSQLStore2::getPropertyTables();
+// 			foreach ( $propertyTables as $tableName => $propertyTable ) {
+// 				$data = smwfGetStore()->fetchSemanticData( $row->smw_id, null, $propertyTable );
+// 				foreach ( $data as $d ) {
+// 					$semdata->addPropertyStubValue( reset( $d ), end( $d ) );
+// 				}
+// 			}
+// 			
+// 			$rdfDataArray[] = SMWExporter::makeExportData( $semdata, null );
+// 		}
+// 		
+// 		return true;
+// 	}
+// }
 
 /**
  * Class for hook functions for creating and storing information
